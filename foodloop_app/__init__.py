@@ -6,19 +6,17 @@ from flask_security.datastore import SQLAlchemyUserDatastore
 from flask_security.core import Security
 from datetime import timedelta
 
-# Initialize database
 db = SQLAlchemy()
 
-# Import ALL MODELS here
 from .models import (
     User,
     Role,
     InventoryItem,
     Food,
     FoodRequest,
-)  # 👈 add all new models here
+)  
 
-# Initialize user_datastore outside of create_app
+
 user_datastore = SQLAlchemyUserDatastore(db, User, Role)
 
 
@@ -44,9 +42,11 @@ def create_app():
     from .auth_routes import auth_bp
     from .retailer_routes import retailer_bp
     from .ngo_routes import ngo_bp
+    from .farmer_routes import farmer_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(retailer_bp)
     app.register_blueprint(ngo_bp)
+    app.register_blueprint(farmer_bp)
 
     return app
