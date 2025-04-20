@@ -1,115 +1,155 @@
-Okay, here is the API documentation for the routes you've provided, including the authentication routes, retailer routes, and NGO routes.
+# FoodLoop Backend API Documentation
 
-I will format this like a typical API documentation, followed by a summary table.
+This document outlines the API endpoints for the FoodLoop backend, built with Flask. The API supports user authentication, food inventory management, surplus food listing, and redistribution for retailers, NGOs, and admins, focusing on waste prevention using "best before" and "expires at" dates.
 
-**Base URL:** `http://127.0.0.1:3000` (adjust if your app runs on a different host/port)
+**Base URL**: `http://localhost:5000` (adjust based on deployment)
 
-**Authentication:**
-Most API endpoints require authentication using a JSON Web Token (JWT). Obtain a token by logging in via the `/auth-login` endpoint and include it in the `Authorization` header of subsequent requests in the format `Bearer YOUR_JWT_TOKEN_HERE`.
+**Authentication**: Protected routes require a JWT token (valid for 1 day), obtained via the `/login` endpoint, included in the `Authorization` header as `Bearer <token>`.
 
 ---
 
-### **Authentication Routes**
+## Summary Table
 
-**1. Sign Up**
+| Method   | Endpoint                       | Description                                                                  | Authentication    |
+| :------- | :----------------------------- | :--------------------------------------------------------------------------- | :---------------- |
+| POST   | /sign-up                     | Create a new user account                                                    | None              |
+| POST   | /login                       | Authenticate user                                                            | None              |
+| POST   | /logout                      | Log out the current user                                                     | None              |
+| GET    | /ngo/filtered_food           | Get listed food items filtered by pincode                                    | NGO Required      |
+| POST   | /ngo/request/<int:id>        | NGO requests a specific listed food item                                     | NGO Required      |
+| GET    | /ngo/my_requests             | Get requests made by the authenticated NGO                                   | NGO Required      |
+| POST   | /ngo/claim/<int:id>          | NGO claims a specific approved food item                                     | NGO Required      |
+| GET    | /retailers/inventory         | Get authenticated retailer's food inventory                                  | Retailer Req.     |
+| POST   | /retailers/add_item          | Add a new food item (batch) to inventory                                     | Retailer Req.     |
+| DELETE | /retailers/item/remove/<int:item_id> | Remove an inventory item (batch)                                             | Retailer Req.     |
+| POST   | /retailers/inventory/<int:id>/sell | Sell quantity from an inventory item                                         | Retailer Req.     |
+| POST   | /retailers/inventory/<int:id>/list | Change item status to 'Listing'                                              | Retailer Req.     |
+| GET    | /retailers/notifications     | Get notifications for the authenticated retailer                             | Retailer Req.     |
+| GET    | /retailers/requests          | Get requests from NGOs for the retailer's food                               | Retailer Req.     |
+| POST   | /retailers/requests/<int:request_id>/approve | Approve an NGO's request                                                     | Retailer Req.     |
+| POST   | /retailers/requests/<int:request_id>/ignore | Ignore an NGO's request                                                      | Retailer Req.     |
+| POST   | /retailers/food/<int:id>/ignore | Ignore notification for an item                                              | Retailer Req.     |
+| GET    | /farmer/simple_demand_forecast | Get simple demand forecast and market analysis based on recent regional data | Farmer Required   |
 
-* **URL:** `/sign-up`
-* **Method:** `POST`
-* **Description:** Registers a new user with a specific role.
-* **Authentication:** None required.
-* **Request Body:** `application/json`
-    ```json
-    {
-      "email": "user@example.com",
-      "password": "securepassword123",
-      "city": "Some City",
-      "pincode": "123456",
-      "contact": "9876543210",
-      "role": "Retailer"  // or "Ngo", "Farmer", "Admin"
-    }
-    ```
-    * `email`: User's email (must be unique).
-    * `password`: User's password.
-    * `city`: User's city.
-    * `pincode`: User's pincode.
-    * `contact`: User's contact number.
-    * `role`: The desired role for the user (case-insensitive, but stored capitalized). Must be one of the valid roles defined in the backend.
-* **Success Response:** `201 Created`
+---
+
+## Authentication Routes
+
+### Sign Up
+
+**Create a new user account.**
+
+- **Method**: POST
+- **URL**: `/sign-up`
+- **Authentication**: None
+- **Content-Type**: `application/json`
+- **Request Body**:
+
+  ```json
+  {
+    "email": "string",
+    "password": "string",
+    "city": "string",
+    "pincode": "string",
+    "contact": "string",
+    "role": "string" // One of: "Retailer", "Ngo", "Farmer", "Admin"
+  }
+  ```
+- **Responses**:
+  - **201 Created**:
+
     ```json
     {
       "message": "User created successfully"
     }
     ```
-* **Error Responses:**
-    * `402`: Missing required fields in the request body.
-        ```json
-        {"error": "Missing required fields"}
-        ```
-    * `409`: Email address already registered.
-        ```json
-        {"error": "Email address is already registered"}
-        ```
-    * `403`: Invalid role provided.
-        ```json
-        {"error": "Invalid role: InvalidRoleName"}
-        ```
-    * `400`: Role name not found in the database.
-        ```json
-        {"error": "Role 'NonExistentRole' not found"}
-        ```
-    * `500`: Internal server error during registration (e.g., database issue).
-        ```json
-        {"error": "An error occurred during registration: <error details>"}
-        ```
+  - **409 Conflict**:
 
-**2. Login**
-
-* **URL:** `/auth-login`
-* **Method:** `POST`
-* **Description:** Authenticates a user and returns a JWT access token.
-* **Authentication:** None required.
-* **Request Body:** `application/json`
     ```json
     {
-      "email": "user@example.com",
-      "password": "securepassword123"
+      "error": "Email address is already registered"
     }
     ```
-    * `email`: User's email.
-    * `password`: User's password.
-* **Success Response:** `200 OK`
+  - **402 Bad Request**:
+
+    ```json
+    {
+      "error": "Missing required fields"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "Invalid role: <role>"
+    }
+    ```
+  - **500 Internal Server Error**:
+
+    ```json
+    {
+      "error": "An error occurred during registration: <error>"
+    }
+    ```
+
+### Login
+
+**Authenticate a user and obtain a JWT token (valid for 1 day).**
+
+- **Method**: POST
+- **URL**: `/login`
+- **Authentication**: None
+- **Content-Type**: `application/json`
+- **Request Body**:
+
+  ```json
+  {
+    "email": "string",
+    "password": "string"
+  }
+  ```
+- **Responses**:
+  - **200 OK**:
+
     ```json
     {
       "message": "Login successful",
-      "token": "eyJhbGciOi...", // Your JWT access token
+      "token": "string",
       "user": {
-        "id": 1,
-        "email": "user@example.com",
-        "city": "Some City",
-        "pincode": "123456",
-        "contact": "9876543210",
-        "roles": ["Retailer"] // List of user's roles
+        "id": integer,
+        "email": "string",
+        "city": "string",
+        "pincode": "string",
+        "contact": "string",
+        "roles": ["string"]
       }
     }
     ```
-* **Error Responses:**
-    * `402`: Missing email or password in the request body.
-        ```json
-        {"error": "Email and password are required"}
-        ```
-    * `401`: Invalid email or password.
-        ```json
-        {"error": "Invalid email or password"}
-        ```
+  - **401 Unauthorized**:
 
-**3. Logout**
+    ```json
+    {
+      "error": "Invalid email or password"
+    }
+    ```
+  - **402 Bad Request**:
 
-* **URL:** `/logout`
-* **Method:** `POST`
-* **Description:** Logs out the user. (Note: As this API primarily uses stateless JWTs, this endpoint clears the server-side session but doesn't invalidate the JWT itself until it expires. Its main use might be for session-based contexts).
-* **Authentication:** None required (based on provided code, but unusual for a JWT API).
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+    ```json
+    {
+      "error": "Email and password are required"
+    }
+    ```
+
+### Logout
+
+**Log out the current user.**
+
+- **Method**: POST
+- **URL**: `/logout`
+- **Authentication**: None
+- **Responses**:
+  - **200 OK**:
+
     ```json
     {
       "message": "Logged out successfully"
@@ -118,450 +158,763 @@ Most API endpoints require authentication using a JSON Web Token (JWT). Obtain a
 
 ---
 
-### **Retailer Routes**
+## NGO Routes
 
-*(All routes under `/retailers` require a valid JWT in the `Authorization: Bearer <token>` header.)*
+### Get Filtered Food
 
-**1. Get Retailer Inventory**
+**Get listed food items filtered by the NGO's pincode.**
 
-* **URL:** `/retailers/inventory`
-* **Method:** `GET`
-* **Description:** Retrieves the authenticated retailer's inventory items.
-* **Authentication:** JWT Required.
-* **URL Parameters:** None.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+- **Method**: GET
+- **URL**: `/ngo/filtered_food`
+- **Authentication**: NGO Required
+- **Query Parameters**:
+  - `pincode` (optional, string): Filter by pincode (defaults to user's pincode)
+- **Responses**:
+  - **200 OK**:
+
     ```json
     [
       {
-        "id": 1,         // InventoryItem ID
-        "food_id": 101,  // Linked Food ID
-        "name": "Apples",
-        "quantity": 150.0,
-        "best_before": "2025-04-26T12:00:00", // ISO 8601 format or null
-        "expires_at": "2025-05-10T12:00:00",   // ISO 8601 format or null
-        "status": "Selling", // or "Listing", "Approved", etc.
-        "created_at": "2025-04-19T18:00:00"    // ISO 8601 format or null
-      },
-      // ... more inventory items
+        "id": integer,
+        "name": "string",
+        "quantity": integer,
+        "best_before": "string", // Format: YYYY-MM-DDTHH:MM:SS
+        "expires_at": "string",  // Format: YYYY-MM-DDTHH:MM:SS
+        "location": {
+          "city": "string",
+          "pincode": "string"
+        },
+        "retailer_contact": "string"
+      }
     ]
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found (unlikely if authenticated via JWT).
+  - **404 Not Found**:
 
-**2. Add/Update Inventory Item**
-
-* **URL:** `/retailers/add_item`
-* **Method:** `POST`
-* **Description:** Adds a new type of food to the retailer's inventory or adds quantity to an existing item.
-* **Authentication:** JWT Required.
-* **URL Parameters:** None.
-* **Request Body:** `application/json`
     ```json
     {
-      "name": "Bananas",
-      "quantity": 50.0
+      "error": "User not found or not an NGO"
     }
     ```
-    * `name`: Name of the food item.
-    * `quantity`: Quantity to add (must be > 0).
-* **Success Responses:**
-    * `201 Created` (If adding a new food type globally, or if adding an existing type for the first time for this retailer)
-        ```json
-        {
-          "id": 5,         // New InventoryItem ID
-          "food_id": 105,  // New or Existing Food ID
-          "name": "Bananas",
-          "quantity": 50.0, // Note: quantity in response might reflect global stock if Food.quantity is global
-          "best_before": "2025-05-01T12:00:00",
-          "expires_at": "2025-05-15T12:00:00",
-          "status": "Selling"
-        }
-        ```
-    * `200 OK` (If adding quantity to an item the retailer already stocks)
-        ```json
-        {
-          "id": 1,         // Existing InventoryItem ID
-          "food_id": 101,  // Existing Food ID
-          "name": "Apples",
-          "quantity": 200.0, // Updated global quantity
-          "best_before": "2025-04-26T12:00:00",
-          "expires_at": "2025-05-10T12:00:00",
-          "status": "Selling",
-          "message": "Added 50.0 to existing 'Apples'. Total quantity: 200.0"
-        }
-        ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found (unlikely).
-    * `422`: Missing required fields, invalid quantity format/value, invalid date format from date service, or generated dates are invalid (e.g., don't meet minimum future requirements).
-        ```json
-        {"error": "Missing required fields (name or quantity)"}
-        {"error": "Invalid quantity format"}
-        {"error": "Quantity must be greater than 0"}
-        {"error": "Failed to get valid dates for new item 'Bananas'. Invalid format from date service."}
-        {"error": "Generated dates are invalid (best before must be at least 7 days from today, and expiry at least 14 days after best before)"}
-        ```
-    * `409`: Conflict - Attempted to create a new food type name that already exists globally.
-        ```json
-        {"error": "Food item type with name 'Apples' already exists in the system and could not be added as a new type. (Constraint Error)"}
-        {"error": "Internal error: Attempted to create duplicate food type name 'Apples'."} // Less likely with correct logic
-        ```
-    * `500`: Unexpected error (e.g., Gemini API failure, database error not specifically caught).
-        ```json
-        {"error": "An unexpected error occurred: <error details>"}
-        {"error": "Database error: <db error details>"}
-        ```
+  - **403 Forbidden**:
 
-**3. Get Retailer's Incoming Food Requests**
+    ```json
+    {
+      "error": "Unauthorized access"
+    }
+    ```
 
-* **URL:** `/retailers/requested_food`
-* **Method:** `GET`
-* **Description:** Retrieves food requests made by NGOs for this retailer's inventory items.
-* **Authentication:** JWT Required.
-* **URL Parameters:** None.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+### Create Food Request
+
+**NGO requests a specific listed food item.**
+
+- **Method**: POST
+- **URL**: `/ngo/request/<int:id>`
+  - `<int:id>`: ID of the inventory item
+- **Authentication**: NGO Required
+- **Content-Type**: `application/json`
+- **Request Body**:
+
+  ```json
+  {
+    "quantity": "integer",
+    "pickup_date": "string", // Optional, Format: YYYY-MM-DDTHH:MM:SS
+    "notes": "string"       // Optional
+  }
+  ```
+- **Responses**:
+  - **201 Created**:
+
+    ```json
+    {
+      "id": integer,
+      "food_id": integer,
+      "quantity": integer,
+      "status": "pending",
+      "pickup_date": "string", // Format: YYYY-MM-DDTHH:MM:SS or null
+      "created_at": "string"   // Format: YYYY-MM-DDTHH:MM:SS
+    }
+    ```
+  - **422 Unprocessable Entity**:
+
+    ```json
+    {
+      "error": "Missing required fields (quantity)"
+    }
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "Item not found or not available for request"
+    }
+    ```
+  - **400 Bad Request**:
+
+    ```json
+    {
+      "error": "Requested quantity exceeds available amount"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "User not found or not an NGO"
+    }
+    ```
+
+### Get My Requests
+
+**Get requests made by the authenticated NGO.**
+
+- **Method**: GET
+- **URL**: `/ngo/my_requests`
+- **Authentication**: NGO Required
+- **Responses**:
+  - **200 OK**:
+
     ```json
     [
       {
-        "id": 201,     // FoodRequest ID
-        "food_id": 101, // Linked Food ID
-        "ngo_id": 501,  // ID of the requesting NGO user
-        "quantity": 30.0, // Quantity requested by the NGO
-        "status": "pending", // or "approved", "ignored"
-        "pickup_date": "2025-04-21T10:00:00", // ISO 8601 format or null
-        "created_at": "2025-04-20T00:30:00"   // ISO 8601 format
-      },
-      // ... more requests
+        "id": integer,
+        "food_id": integer,
+        "name": "string",
+        "quantity": integer,
+        "status": "string", // e.g., "pending", "approved", "completed"
+        "pickup_date": "string", // Format: YYYY-MM-DDTHH:MM:SS or null
+        "created_at": "string"   // Format: YYYY-MM-DDTHH:MM:SS
+      }
     ]
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found (unlikely).
+  - **404 Not Found**:
 
-**4. Sell Inventory Item**
-
-* **URL:** `/retailers/inventory/<int:id>/sell`
-* **Method:** `POST`
-* **Description:** Records the sale of a quantity of an inventory item. Deducts quantity from stock.
-* **Authentication:** JWT Required.
-* **URL Parameters:**
-    * `id` (integer): The ID of the InventoryItem to sell from.
-* **Request Body:** `application/json`
     ```json
     {
-      "quantity": 10.5
+      "error": "User not found or not an NGO"
     }
     ```
-    * `quantity`: The quantity to sell (must be > 0).
-* **Success Response:** `200 OK`
+  - **403 Forbidden**:
+
     ```json
     {
-      "message": "Sold 10.5 of Apples",
-      "remaining_quantity": 140.5
+      "error": "Unauthorized access"
     }
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: Inventory item not found or does not belong to the authenticated retailer.
-    * `415`: Request body is not JSON.
-    * `422`: Quantity is missing, invalid format, <= 0, or insufficient quantity in stock.
-        ```json
-        {"error": "Quantity is required"}
-        {"error": "Invalid quantity value format"}
-        {"error": "Quantity must be greater than 0"}
-        {"error": "Insufficient quantity"}
-        ```
-    * `422`: Cannot sell after the item's expiry date.
-        ```json
-        {"error": "Cannot sell after expiry date"}
-        ```
-    * `500`: Database error or unexpected server error.
-        ```json
-        {"error": "Database error occurred while selling item"}
-        {"error": "An unexpected error occurred: <error details>"}
-        ```
 
-**5. List Inventory Item for NGOs**
+### Claim Food
 
-* **URL:** `/retailers/inventory/<int:id>/list`
-* **Method:** `POST`
-* **Description:** Marks an inventory item as "Listing", making it visible to NGOs (assuming it meets other criteria like quantity and location).
-* **Authentication:** JWT Required.
-* **URL Parameters:**
-    * `id` (integer): The ID of the InventoryItem to list.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+**NGO claims a specific approved food item.**
+
+- **Method**: POST
+- **URL**: `/ngo/claim/<int:id>`
+  - `<int:id>`: ID of the food request
+- **Authentication**: NGO Required
+- **Responses**:
+  - **200 OK**:
+
     ```json
     {
-      "message": "Food listed for NGOs"
+      "message": "Food claimed successfully"
     }
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: Inventory item not found or does not belong to the authenticated retailer, or has zero quantity.
-    * `422`: Cannot list the item based on its dates. (Note: Current code enforces 'Cannot list before expiry date', which may need review based on intended logic).
-        ```json
-        {"error": "Cannot list before expiry date"}
-        ```
-    * `500`: Database error or unexpected server error.
-        ```json
-        {"error": "Database error occurred while listing item"}
-        {"error": "An unexpected error occurred: <error details>"}
-        ```
+  - **404 Not Found**:
 
-**6. Get Notifications**
+    ```json
+    {
+      "error": "Request not found"
+    }
+    ```
+  - **400 Bad Request**:
 
-* **URL:** `/retailers/notifications`
-* **Method:** `GET`
-* **Description:** Retrieves notifications for the retailer (currently based on items past their best before date with status "Selling").
-* **Authentication:** JWT Required.
-* **URL Parameters:** None.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+    ```json
+    {
+      "error": "Request not approved or food not available for claiming"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "User not found or not an NGO"
+    }
+    ```
+
+---
+
+## Retailer Routes
+
+### Get Inventory
+
+**Get authenticated retailer's food inventory.**
+
+- **Method**: GET
+- **URL**: `/retailers/inventory`
+- **Authentication**: Retailer Required
+- **Responses**:
+  - **200 OK**:
+
     ```json
     [
       {
-        "id": 1,        // InventoryItem ID
-        "message": "Your Apples (remaining: 140.5) is past best before. List it or ignore.",
-        "options": ["List", "Ignore"]
-      },
-      // ... more notifications
+        "id": integer,
+        "name": "string",
+        "quantity": integer,
+        "best_before": "string", // Format: YYYY-MM-DDTHH:MM:SS
+        "expires_at": "string",  // Format: YYYY-MM-DDTHH:MM:SS
+        "status": "string",     // e.g., "Selling", "Listing", "Approved"
+        "created_at": "string"  // Format: YYYY-MM-DDTHH:MM:SS
+      }
     ]
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found (unlikely).
+  - **404 Not Found**:
 
-**7. Approve Food Request**
-
-* **URL:** `/retailers/requests/<int:request_id>/approve`
-* **Method:** `POST`
-* **Description:** Approves a pending food request made by an NGO. Changes request status to "approved" and the linked Food item status to "Approved".
-* **Authentication:** JWT Required.
-* **URL Parameters:**
-    * `request_id` (integer): The ID of the FoodRequest to approve.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
     ```json
     {
-      "message": "Request approved"
+      "error": "User not found"
     }
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: Request not found, does not belong to the authenticated retailer's inventory item, or is not in "pending" status.
-        ```json
-        {"error": "Request not found or already processed"}
-        ```
+  - **403 Forbidden**:
 
-**8. Ignore Food Request**
-
-* **URL:** `/retailers/requests/<int:request_id>/ignore`
-* **Method:** `POST`
-* **Description:** Ignores (declines) a pending food request made by an NGO. Changes request status to "ignored".
-* **Authentication:** JWT Required.
-* **URL Parameters:**
-    * `request_id` (integer): The ID of the FoodRequest to ignore.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
     ```json
     {
-      "message": "Request ignored"
+      "error": "Unauthorized access"
     }
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: Request not found, does not belong to the authenticated retailer's inventory item, or is not in "pending" status.
-        ```json
-        {"error": "Request not found or already processed"}
-        ```
 
-**9. Remove Inventory Item**
+### Add Item
 
-* **URL:** `/retailers/item/remove/<int:item_id>`
-* **Method:** `DELETE`
-* **Description:** Removes an inventory item entry for the retailer. (Note: This deletes the InventoryItem link, but the linked Food item remains in the database due to schema).
-* **Authentication:** JWT Required + User must have the "Retailer" role.
-* **URL Parameters:**
-    * `item_id` (integer): The ID of the InventoryItem to remove.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+**Add a new food item (batch) to inventory.**
+
+- **Method**: POST
+- **URL**: `/retailers/add_item`
+- **Authentication**: Retailer Required
+- **Content-Type**: `application/json`
+- **Request Body**:
+
+  ```json
+  {
+    "name": "string",
+    "quantity": "integer",
+    "best_before": "string", // Format: YYYY-MM-DDTHH:MM:SS
+    "expires_at": "string"   // Format: YYYY-MM-DDTHH:MM:SS
+  }
+  ```
+- **Responses**:
+  - **201 Created**:
+
+    ```json
+    {
+      "id": integer,
+      "name": "string",
+      "quantity": integer,
+      "best_before": "string", // Format: YYYY-MM-DDTHH:MM:SS
+      "expires_at": "string",  // Format: YYYY-MM-DDTHH:MM:SS
+      "status": "string"      // e.g., "Selling"
+    }
+    ```
+  - **422 Unprocessable Entity**:
+
+    ```json
+    {
+      "error": "Missing required fields"
+    }
+    ```
+  - **400 Bad Request**:
+
+    ```json
+    {
+      "error": "Invalid quantity" or "Invalid date range"
+    }
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "User not found"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "Unauthorized access"
+    }
+    ```
+
+### Remove Item
+
+**Remove an inventory item (batch).**
+
+- **Method**: DELETE
+- **URL**: `/retailers/item/remove/<int:item_id>`
+  - `<int:item_id>`: ID of the inventory item
+- **Authentication**: Retailer Required
+- **Responses**:
+  - **200 OK**:
+
     ```json
     {
       "message": "Item removed successfully"
     }
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found, does not have the "Retailer" role, or the inventory item is not found or does not belong to the authenticated retailer.
-        ```json
-        {"error": "User not found or not a retailer"}
-        {"error": "Inventory item not found"}
-        ```
-    * `400`: General error during deletion (e.g., database issue).
-        ```json
-        {"error": "<error details>"}
-        ```
+  - **404 Not Found**:
 
-**10. Ignore Notification**
+    ```json
+    {
+      "error": "Inventory item not found"
+    }
+    ```
+  - **403 Forbidden**:
 
-* **URL:** `/retailers/food/<int:id>/ignore`
-* **Method:** `POST`
-* **Description:** Acknowledges or ignores a specific notification related to an inventory item. (Note: Based on code, this doesn't change item status, just returns success).
-* **Authentication:** JWT Required + User must have the "Retailer" role.
-* **URL Parameters:**
-    * `id` (integer): The ID of the InventoryItem associated with the notification.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+    ```json
+    {
+      "error": "User not found or not a retailer"
+    }
+    ```
+  - **400 Bad Request**:
+
+    ```json
+    {
+      "error": "<error>"
+    }
+    ```
+
+### Sell Inventory Item
+
+**Sell quantity from an inventory item.**
+
+- **Method**: POST
+- **URL**: `/retailers/inventory/<int:id>/sell`
+  - `<int:id>`: ID of the inventory item
+- **Authentication**: Retailer Required
+- **Content-Type**: `application/json`
+- **Request Body**:
+
+  ```json
+  {
+    "quantity": "integer"
+  }
+  ```
+- **Responses**:
+  - **200 OK**:
+
+    ```json
+    {
+      "message": "Sold <quantity> of <name>",
+      "remaining_quantity": integer
+    }
+    ```
+  - **422 Unprocessable Entity**:
+
+    ```json
+    {
+      "error": "Quantity is required"
+    }
+    ```
+  - **400 Bad Request**:
+
+    ```json
+    {
+      "error": "Cannot sell after expiry date" or "Insufficient quantity"
+    }
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "Inventory item not found"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "Unauthorized access"
+    }
+    ```
+
+### List Inventory Item
+
+**Change item status to 'Listing'.**
+
+- **Method**: POST
+- **URL**: `/retailers/inventory/<int:id>/list`
+  - `<int:id>`: ID of the inventory item
+- **Authentication**: Retailer Required
+- **Responses**:
+  - **200 OK**:
+
+    ```json
+    {
+      "message": "Food listed for NGOs"
+    }
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "Inventory item not found or no quantity available"
+    }
+    ```
+  - **422 Unprocessable Entity**:
+
+    ```json
+    {
+      "error": "Cannot list before expiry date"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "Unauthorized access"
+    }
+    ```
+
+### Get Notifications
+
+**Get notifications for the authenticated retailer.**
+
+- **Method**: GET
+- **URL**: `/retailers/notifications`
+- **Authentication**: Retailer Required
+- **Responses**:
+  - **200 OK**:
+
+    ```json
+    [
+      {
+        "id": integer,
+        "message": "string",
+        "options": ["List", "Ignore"],
+        "food_id": integer
+      }
+    ]
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "User not found"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "Unauthorized access"
+    }
+    ```
+
+### Get Requests
+
+**Get requests from NGOs for the retailer's food.**
+
+- **Method**: GET
+- **URL**: `/retailers/requests`
+- **Authentication**: Retailer Required
+- **Query Parameters**:
+  - `pincode` (optional, string): Filter by pincode
+- **Responses**:
+  - **200 OK**:
+
+    ```json
+    [
+      {
+        "id": integer,
+        "food_id": integer,
+        "ngo_id": integer,
+        "quantity": integer,
+        "status": "string", // e.g., "pending", "approved", "ignored"
+        "pickup_date": "string", // Format: YYYY-MM-DDTHH:MM:SS or null
+        "created_at": "string"   // Format: YYYY-MM-DDTHH:MM:SS
+      }
+    ]
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "User not found"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "Unauthorized access"
+    }
+    ```
+
+### Approve Request
+
+**Approve an NGO's request for a food item.**
+
+- **Method**: POST
+- **URL**: `/retailers/requests/<int:request_id>/approve`
+  - `<int:request_id>`: ID of the food request
+- **Authentication**: Retailer Required
+- **Responses**:
+  - **200 OK**:
+
+    ```json
+    {
+      "message": "Request approved"
+    }
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "Request not found or already processed"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "User not found or not a retailer"
+    }
+    ```
+
+### Ignore Request
+
+**Ignore an NGO's request for a food item.**
+
+- **Method**: POST
+- **URL**: `/retailers/requests/<int:request_id>/ignore`
+  - `<int:request_id>`: ID of the food request
+- **Authentication**: Retailer Required
+- **Responses**:
+  - **200 OK**:
+
+    ```json
+    {
+      "message": "Request ignored"
+    }
+    ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "Request not found or already processed"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "User not found or not a retailer"
+    }
+    ```
+
+### Ignore Notification
+
+**Ignore notification for an item.**
+
+- **Method**: POST
+- **URL**: `/retailers/food/<int:id>/ignore`
+  - `<int:id>`: ID of the inventory item
+- **Authentication**: Retailer Required
+- **Responses**:
+  - **200 OK**:
+
     ```json
     {
       "message": "Notification ignored"
     }
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found, does not have the "Retailer" role, or the item is not found/not retailer's/not in "Selling" or "Listing" status.
-        ```json
-        {"error": "User not found or not a retailer"}
-        {"error": "Item not found or not eligible for ignore"}
-        ```
+  - **404 Not Found**:
+
+    ```json
+    {
+      "error": "Item not found or not eligible for ignore"
+    }
+    ```
+  - **403 Forbidden**:
+
+    ```json
+    {
+      "error": "User not found or not a retailer"
+    }
+    ```
 
 ---
 
-### **NGO Routes**
+## Admin Routes
 
-*(All routes under `/ngo` require a valid JWT in the `Authorization: Bearer <token>` header.)*
+### Get All Food
 
-**1. Get Filtered (Nearby & Listed) Food**
+**Get all food items (for admin/debug purposes).**
 
-* **URL:** `/ngo/filtered_food`
-* **Method:** `GET`
-* **Description:** Retrieves food items listed by retailers in the same pincode as the authenticated NGO, which are currently in "Listing" status and have quantity > 0.
-* **Authentication:** JWT Required.
-* **URL Parameters:** None.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+- **Method**: GET
+- **URL**: `/admin/food`
+- **Authentication**: Admin Required
+- **Responses**:
+  - **200 OK**:
+
     ```json
     [
       {
-        "id": 1,         // InventoryItem ID
-        "name": "Bananas",
-        "quantity": 50.0,
-        "best_before": "2025-05-01T12:00:00", // ISO 8601 format
-        "expires_at": "2025-05-15T12:00:00",   // ISO 8601 format
-        "location": {
-          "city": "Indore",
-          "pincode": "452001"
-        },
-        "retailer_contact": "1112223330"
-      },
-      // ... more listed items in the same pincode
+        "id": integer,
+        "name": "string",
+        "quantity": integer,
+        "best_before": "string", // Format: YYYY-MM-DDTHH:MM:SS
+        "expires_at": "string",  // Format: YYYY-MM-DDTHH:MM:SS
+        "status": "string",     // e.g., "Selling", "Listing", "Approved"
+        "created_at": "string", // Format: YYYY-MM-DDTHH:MM:SS
+        "owner_id": integer     // ID of the owning user
+      }
     ]
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found (unlikely).
+  - **403 Forbidden**:
 
-**2. Create Food Request**
-
-* **URL:** `/ngo/request`
-* **Method:** `POST`
-* **Description:** Creates a new food request for a specific listed inventory item.
-* **Authentication:** JWT Required.
-* **URL Parameters:** None.
-* **Request Body:** `application/json`
     ```json
     {
-      "inventory_item_id": 1,       // The ID of the InventoryItem the NGO wants to request
-      "quantity": 30.0,             // The quantity the NGO is requesting
-      "pickup_date": "2025-04-21T10:00:00", // Optional: Desired pickup date/time (ISO 8601)
-      "notes": "Urgent need for distribution tomorrow." // Optional: Notes for the retailer
+      "error": "User not found or not an admin"
     }
     ```
-    * `inventory_item_id`: The ID of the InventoryItem being requested (required).
-    * `quantity`: The quantity being requested (must be > 0) (required).
-    * `pickup_date`: Desired pickup date/time (optional, ISO 8601 string).
-    * `notes`: Any notes for the retailer (optional string).
-* **Success Response:** `201 Created`
-    ```json
-    {
-      "id": 202, // The ID of the newly created FoodRequest
-      "message": "Food request created successfully"
-      // Optional: Includes details like inventory_item_id, quantity, pickup_date etc. if returned by endpoint
-    }
-    ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found (unlikely).
-    * `400`: Bad request data (e.g., missing required fields like `inventory_item_id` or `quantity`, non-numeric quantity, quantity <= 0, database error).
-        ```json
-        {"error": "Missing required fields (inventory_item_id or quantity)"}
-        {"error": "Requested quantity must be greater than 0"}
-        {"error": "Failed to create food request. Please check your input. Details: <db error or type error>"}
-        ```
-    * `422`: Invalid format for optional fields, like `pickup_date`.
-        ```json
-        {"error": "Invalid pickup_date format. Use YYYY-MM-DDTHH:MM:SS"}
-        ```
-    * `500`: Unexpected internal server error.
-        ```json
-        {"error": "An unexpected internal error occurred: <error details>"}
-        ```
+---
 
-**3. Get NGO's Own Requests**
+## `GET /farmer/simple_demand_forecast`
 
-* **URL:** `/ngo/my_requests`
+    ** Description: **
+
+    This endpoint provides a simple demand forecast and market analysis based on recent historical NGO food request data within the authenticated farmer's registered pincode area. It analyzes demand patterns for the most requested food items over a relevant period (up to the last 4 months) and provides insights.
+
+    **Authentication:**
+
+
+    Requires a valid JSON Web Token (JWT) for an authenticated **Farmer** user.
+
+**Request:**
+
 * **Method:** `GET`
-* **Description:** Retrieves all food requests made by the authenticated NGO.
-* **Authentication:** JWT Required.
-* **URL Parameters:** None.
-* **Request Body:** None.
-* **Success Response:** `200 OK`
+* **URL:** `/farmer/simple_demand_forecast`
+* **Body:** None
+* **Headers:**
+    * `Authorization: Bearer <your_jwt_token>`
+
+**Response:**
+
+Returns a JSON object containing the top demanded foods and a text-based market analysis.
+
+* **Status Code:** `200 OK` (for successful retrieval or indicating no data/no recent data), `404 Not Found` (if farmer user not found), `500 Internal Server Error` (for server or AI errors).
+
+* **Body (JSON):**
+
     ```json
-    [
-      {
-        "id": 201,     // FoodRequest ID
-        "inventory_item": { // Details of the requested item
-          "id": 1,      // InventoryItem ID
-          "name": "Apples",
-          "quantity": 150.0 // Quantity of the item in the retailer's inventory (may not be the requested quantity)
+    {
+      "top_demanded_foods": [
+        {
+          "item_name": "string",
+          "total_requested_quantity": float
         },
-        "status": "pending", // or "approved", "ignored"
-        "created_at": "2025-04-20T00:30:00"   // ISO 8601 format
-      },
-      // ... more requests made by this NGO
-    ]
+        // ... up to 5 items
+      ],
+      "demand_forecast_text": "string",
+      "data_source": "string"
+    }
     ```
-* **Error Responses:**
-    * `401`: Missing or invalid JWT.
-    * `404`: User not found (unlikely).
+
+* **Body Fields:**
+
+    * `top_demanded_foods`: An array of objects representing the top requested food items in the analysis period. Each object contains the `item_name` and the aggregated `total_requested_quantity`. This array will be empty if no market data is available for the region.
+    * `demand_forecast_text`: A string containing the market analysis and forecast insights generated by the system (potentially using AI). This field will contain a message indicating the data situation if no analysis can be generated (e.g., "No market data available for this region.").
+    * `data_source`: A string indicating the source of the data used for the analysis. Possible values include:
+        * `"historical"`: Analysis is based on historical data (either all recent data or the latest 4 months).
+        * `"none"`: No historical market data was found for the region.
+        * `"none_recent"`: Data exists, but none is within the last 4 months, so no recent analysis could be performed.
+
+**Example Response (Data Available):**
+
+```json
+{
+  "top_demanded_foods": [
+    {
+      "item_name": "Wheat Flour (kg)",
+      "total_requested_quantity": 550.0
+    },
+    {
+      "item_name": "Lentils (Mix)",
+      "total_requested_quantity": 480.0
+    },
+    {
+      "item_name": "Rice (kg)",
+      "total_requested_quantity": 320.0
+    }
+  ],
+  "demand_forecast_text": "Recent demand in your region indicates a strong need for staple grains like wheat flour and rice, as well as lentils. Consider prioritizing the cultivation or stocking of these items to meet local NGO requests.",
+  "data_source": "historical"
+}
+```
+
+**Example Response (No Data):**
+
+```json
+{
+  "top_demanded_foods": [],
+  "demand_forecast_text": "No market data available for this region.",
+  "data_source": "none"
+}
+```
+
+**Example Response (Farmer Pincode Missing):**
+```json
+{
+  "message": "Farmer profile requires a pincode to provide regional insights."
+}
+```
 
 ---
 
-### **Route Summary Table**
+## Notes for Frontend Team
 
-| Method   | Path                                               | Description                                                                | Authentication          |
-| :------- | :------------------------------------------------- | :------------------------------------------------------------------------- | :---------------------- |
-| `POST`   | `/sign-up`                                         | Register a new user with a role.                                           | None                    |
-| `POST`   | `/auth-login`                                      | Authenticate user and return JWT token.                                    | None                    |
-| `POST`   | `/logout`                                          | Log out user (clears session, limited JWT relevance).                      | None Required           |
-| `GET`    | `/retailers/inventory`                             | Get authenticated retailer's inventory items.                              | JWT Required            |
-| `POST`   | `/retailers/add_item`                              | Add new inventory item or add quantity to existing item.                   | JWT Required            |
-| `GET`    | `/retailers/requested_food`                        | Get food requests made by NGOs for this retailer.                          | JWT Required            |
-| `POST`   | `/retailers/inventory/<int:id>/sell`               | Sell quantity from an inventory item.                                      | JWT Required            |
-| `POST`   | `/retailers/inventory/<int:id>/list`               | Mark an inventory item as "Listing".                                       | JWT Required            |
-| `GET`    | `/retailers/notifications`                         | Get retailer notifications (expiry, etc.).                                 | JWT Required            |
-| `POST`   | `/retailers/requests/<int:request_id>/approve`     | Approve a pending food request.                                            | JWT Required            |
-| `POST`   | `/retailers/requests/<int:request_id>/ignore`      | Ignore (decline) a pending food request.                                   | JWT Required            |
-| `DELETE` | `/retailers/item/remove/<int:item_id>`             | Remove an inventory item.                                                  | JWT Required + Retailer |
-| `POST`   | `/retailers/food/<int:id>/ignore`                  | Acknowledge/ignore an item notification.                                   | JWT Required + Retailer |
-| `GET`    | `/ngo/filtered_food`                               | Get food items listed by nearby retailers with "Listing" status.           | JWT Required            |
-| `POST`   | `/ngo/request`                                     | Create a food request for a listed inventory item.                         | JWT Required            |
-| `GET`    | `/ngo/my_requests`                                 | Get authenticated NGO's own food requests.                                 | JWT Required            |
+- **JWT Token**: Store the `token` from the `/login` response and include it in the `Authorization` header for protected routes (e.g., `Bearer <token>`).
+- **Error Handling**: Check for `error` fields in responses to display user-friendly messages (e.g., for 400, 401, 403, or 404 errors).
+- **Role-Based Access**:
+  - Retailers: Use `/retailers/*` endpoints.
+  - NGOs: Use `/ngo/*` endpoints.
+  - Admins: Use `/admin/*` endpoints.
+- **Date Formats**: Use `YYYY-MM-DDTHH:MM:SS` for `best_before`, `expires_at`, `pickup_date`, and `created_at`.
+- **Background Notifications**: The backend runs a daily check to send notifications for items past "best before" but before "expires at." Frontend should poll `/retailers/notifications` or use WebSocket for real-time updates.
+- **CORS**: Supports cross-origin requests (`origins=["*"]`), requiring no additional frontend configuration.
 
 ---
 
-This documentation covers the endpoints, methods, descriptions, authentication requirements, and the expected structure of requests and responses based on the code you provided.
+## Example Workflow
+
+1. **User Registration**:
+   - Send a POST to `/sign-up` with user details and role (e.g., "Retailer").
+   - Receive `{"message": "User created successfully"}`.
+
+2. **User Login**:
+   - Send a POST to `/login` with `{"email": "user@example.com", "password": "pass"}`.
+   - Receive a token valid for 1 day.
+
+3. **Retailer Adds Food**:
+   - Send a POST to `/retailers/add_item` with food details.
+   - Receive the created item details.
+
+4. **Retailer Sells Food**:
+   - Send a POST to `/retailers/inventory/<id>/sell` with `{"quantity": 50}`.
+   - Receive `{"message": "Sold 50 of <name>"}`.
+
+5. **Retailer Lists Food**:
+   - After "best before," send a POST to `/retailers/inventory/<id>/list`.
+   - Receive `{"message": "Food listed for NGOs"}`.
+
+6. **NGO Requests Food**:
+   - Get listed food via `/ngo/filtered_food`, then send a POST to `/ngo/request/<id>` with `{"quantity": 20}`.
+   - Receive a request ID.
+
+7. **Retailer Approves Request**:
+   - View requests via `/retailers/requests`, then send a POST to `/retailers/requests/<request_id>/approve`.
+   - Receive `{"message": "Request approved"}`.
+
+8. **NGO Claims Food**:
+   - Send a POST to `/ngo/claim/<request_id>`.
+   - Receive `{"message": "Food claimed successfully"}`.
+
+
+---
