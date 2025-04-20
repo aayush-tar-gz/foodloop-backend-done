@@ -11,9 +11,12 @@ import re
 import logging
 
 retailer_bp = Blueprint("retailer", __name__, url_prefix="/retailers")
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+# Configure logging (ensure this is set up correctly in your app)
+logging.basicConfig(level=logging.DEBUG) # Make sure level is DEBUG or INFO to see the logs
 logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+load_dotenv()
 
 @retailer_bp.route("/inventory", methods=["GET"])
 @jwt_required()
@@ -34,48 +37,56 @@ def get_inventory():
                 "best_before": item.food.best_before.isoformat() if item.food.best_before else None,
                 "expires_at": item.food.expires_at.isoformat() if item.food.expires_at else None,
                 "status": item.food.status or "Selling",
-                "created_at": item.food.created_at.isoformat() if item.food.created_at else None,
+                # This created_at is from the Food item, not the InventoryItem creation time
+                "food_created_at": item.food.created_at.isoformat() if item.food.created_at else None,
+                # You might also want to return the InventoryItem creation time if needed
+                # "inventory_created_at": item.created_at.isoformat() if item.created_at else None,
             }
             for item in inventory
-            if item.food  # Ensure food relationship is loaded
+            if item.food # Ensure food relationship is loaded
         ]
     )
 
-# Load environment variables from .env file
-load_dotenv()
- 
 
 @retailer_bp.route("/add_item", methods=["POST"])
 @jwt_required()
 def add_inventory_item():
+    logger.debug("Received request to add inventory item.")
     current_user_email = get_jwt_identity()
     user = User.query.filter_by(email=current_user_email).first()
 
     if not user:
+        logger.warning(f"User with email {current_user_email} not found.")
         return jsonify({"error": "User not found"}), 404
 
     data = request.get_json()
+    logger.debug(f"Request JSON data: {data}")
 
     required_fields = ["name", "quantity"]
     if not all(field in data for field in required_fields):
+        logger.warning(f"Missing required fields in request: {data}")
         return jsonify({"error": "Missing required fields (name or quantity)"}), 422
 
     # Validate quantity format and value early
     try:
         quantity = float(data["quantity"])
         if quantity <= 0:
+            logger.warning(f"Invalid quantity received: {quantity}")
             return jsonify({"error": "Quantity must be greater than 0"}), 422
     except ValueError:
+        logger.warning(f"Invalid quantity format received: {data.get('quantity')}")
         return jsonify({"error": "Invalid quantity format"}), 422
 
     item_name = data["name"].strip()
     input_quantity = quantity # Use the validated quantity
+    logger.debug(f"Validated item_name: {item_name}, quantity: {input_quantity}")
 
     # --- Main logic starts here ---
     try:
         # --- CASE 1: Check if the Food item type already exists globally ---
         # We MUST check this first to avoid the UNIQUE constraint error on INSERT
         existing_food_type = Food.query.filter(Food.name.ilike(item_name)).first()
+        logger.debug(f"Checking for existing food type '{item_name}': {'Found' if existing_food_type else 'Not Found'}")
 
         if existing_food_type:
             # The Food type exists. Now, does THIS retailer have an InventoryItem for it?
@@ -83,9 +94,12 @@ def add_inventory_item():
                 user_id=user.id,
                 food_id=existing_food_type.id
             ).first()
+            logger.debug(f"Checking for existing inventory item for user {user.id} and food type {existing_food_type.id}: {'Found' if existing_inventory_item else 'Not Found'}")
+
 
             if existing_inventory_item:
                 # --- CASE 1a: Food type exists, AND retailer already stocks it ---
+                logger.debug("Case 1a: Updating existing inventory item.")
                 # Update the quantity on the existing Food record (Note: affects global quantity due to schema)
                 existing_food_type.quantity += input_quantity
                 db.session.commit()
@@ -103,6 +117,7 @@ def add_inventory_item():
 
             else:
                 # --- CASE 1b: Food type exists, BUT retailer does NOT stock it yet ---
+                logger.debug("Case 1b: Creating new inventory item linked to existing food type.")
                 # DO NOT create a new Food. Create a new InventoryItem linking this user to the *existing* Food.
                 logger.debug(f"Food type '{item_name}' exists (Food ID: {existing_food_type.id}), but user {user.id} does not have an inventory item for it. Creating new inventory link.")
 
@@ -132,65 +147,85 @@ def add_inventory_item():
 
         else:
             # --- CASE 2: Food item type does NOT exist globally ---
+            logger.debug("Case 2: Creating new food type and inventory item.")
             # Create a new Food item AND a new InventoryItem for this retailer.
             logger.debug(f"Food type '{item_name}' does not exist. Creating new food type and inventory item.")
 
             # Call Gemini API to get dates for this brand new food item type
             genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
             if not os.getenv("GEMINI_API_KEY"):
+                logger.error("Gemini API key not configured.")
                 return jsonify({"error": "Gemini API key not configured"}), 500
 
-            current_utc_date = datetime.utcnow().date().isoformat()
-            prompt = f"Given a food item '{item_name}' and the location '{user.city}', provide 'best_before' and 'expires_at' dates in the exact format 'best_before:YYYY-MM-DDTHH:MM:SS, expires_at:YYYY-MM-DDTHH:MM:SS'. Ensure the 'best_before' date is at least 7 days from {current_utc_date} (meaning {datetime.utcnow().date() + timedelta(days=7):%Y-%m-%d} or later) and 'expires_at' is at least 14 days after the 'best_before' date. Use 12:00:00 for the time component unless a specific time is highly relevant. Do not include any text outside of the specified format. If you cannot generate dates meeting these rules, return 'ERROR: Unable to generate valid dates'."
+            # --- Date calculation moved inside the function ---
+            current_utc_datetime = datetime.utcnow()
+            current_utc_date_str = current_utc_datetime.date().isoformat()
+            today_utc_date = current_utc_datetime.date()
+            seven_days_from_today_date = today_utc_date + timedelta(days=7)
+            # --- End of moved date calculation ---
+
+            logger.debug(f"Calculated current_utc_date_str: {current_utc_date_str}")
+            logger.debug(f"Calculated seven_days_from_today_date: {seven_days_from_today_date}")
+
+            prompt = f"Given a food item '{item_name}', the current date is {current_utc_date_str}, and the location is '{user.city}'. Considering typical storage conditions, temperature, and the current season in this region, provide an estimated 'best_before' and 'expires_at' date in the exact format 'best_before:YYYY-MM-DDTHH:MM:SS, expires_at:YYYY-MM-DDTHH:MM:SS'. Use 12:00:00 for the time component unless a specific time is highly relevant. Do not include any text outside of the specified format. If you cannot generate reasonable estimated dates, return 'ERROR: Unable to generate valid dates'."
+            logger.debug(f"Gemini prompt: {prompt}")
+
             model = genai.GenerativeModel('gemini-1.5-pro')
             response = model.generate_content(prompt)
 
-            logger.debug(f"Gemini response: {response.text}")
+            logger.debug(f"Raw Gemini response text: {response.text}")
 
             result = response.text.strip()
             if result == "ERROR: Unable to generate valid dates":
+                logger.warning("Gemini returned error for date generation.")
                 return jsonify({"error": "Gemini failed to generate valid dates based on rules"}), 422
 
             match = re.search(r"best_before:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}),\s*expires_at:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})", result)
             if not match:
+                logger.error(f"Gemini response format mismatch. Expected 'best_before:YYYY-MM-DDTHH:MM:SS, expires_at:YYYY-MM-DDTHH:MM:SS', got: {result}")
                 return jsonify({"error": f"Invalid Gemini response format. Expected 'best_before:YYYY-MM-DDTHH:MM:SS, expires_at:YYYY-MM-DDTHH:MM:SS', got: {result}"}), 422
 
             best_before_str = match.group(1)
             expires_at_str = match.group(2)
+            logger.debug(f"Extracted best_before_str: {best_before_str}, expires_at_str: {expires_at_str}")
 
             # Validate dates from Gemini
             try:
+                # Use fromisoformat with the timezone offset directly if present ('Z')
                 best_before = datetime.fromisoformat(best_before_str.replace("Z", "+00:00"))
                 expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+                logger.debug(f"Parsed best_before datetime: {best_before}, expires_at datetime: {expires_at}")
+
             except ValueError as e:
                  logger.error(f"Date parsing error from Gemini output: {best_before_str}, {expires_at_str} - {str(e)}", exc_info=True)
                  return jsonify({"error": f"Error parsing dates from Gemini: {str(e)}"}), 500
 
-            today_utc = datetime.utcnow().date()
-            seven_days_from_today = today_utc + timedelta(days=7)
-
-            if best_before.date() < seven_days_from_today or expires_at < best_before + timedelta(days=14):
-                 logger.debug(f"Invalid dates generated - best_before: {best_before}, expires_at: {expires_at}, today_utc + 7 days: {seven_days_from_today}")
+            # --- USE THE NEWLY CALCULATED seven_days_from_today_date ---
+            if best_before.date() < seven_days_from_today_date or expires_at < best_before + timedelta(days=14):
+                 logger.warning(f"Generated dates are invalid based on rules. best_before: {best_before}, expires_at: {expires_at}, seven_days_from_today_date: {seven_days_from_today_date}")
                  return jsonify({"error": "Generated dates are invalid (best before must be at least 7 days from today, and expiry at least 14 days after best before)"}), 422
 
             # Create the NEW Food item (since it's a new type)
+            # created_at should reflect the time THIS Food entry is created
             food = Food(
                 name=item_name,
                 quantity=input_quantity, # Initial quantity for this new type
                 best_before=best_before, # Dates from Gemini
-                expires_at=expires_at,   # Dates from Gemini
-                created_at=datetime.utcnow(),
+                expires_at=expires_at,    # Dates from Gemini
+                created_at=datetime.utcnow(), # Use current UTC time for creation timestamp
                 status="Selling"
                  # Add is_refrigerated if needed and available in data
             )
             db.session.add(food)
             db.session.flush() # Get food.id
+            logger.debug(f"Created new Food object with ID: {food.id}, created_at: {food.created_at}")
+
 
             # Create the NEW InventoryItem linking the user to this new Food type
             new_item = InventoryItem(user_id=user.id, food_id=food.id)
             db.session.add(new_item)
             db.session.commit()
-            logger.debug(f"Created new food type '{food.name}' (ID: {food.id}) and new inventory item ID {new_item.id}. Quantity: {food.quantity}")
+            logger.debug(f"Created new inventory item ID {new_item.id} for user {user.id} linking to new food type '{food.name}' (ID: {food.id}). Quantity: {food.quantity}")
 
             return jsonify({
                 "id": new_item.id,
@@ -200,23 +235,17 @@ def add_inventory_item():
                 "best_before": food.best_before.isoformat() if food.best_before else None,
                 "expires_at": food.expires_at.isoformat() if food.expires_at else None,
                 "status": food.status,
+                "food_created_at": food.created_at.isoformat() # Include the Food creation date in response
             }), 201 # Created new InventoryItem and Food
 
-
-    # --- Error Handling ---
-    # These 'except' blocks must be at the SAME indentation level as the main 'try' keyword
     except SQLAlchemyError as e:
-        db.session.rollback()
-        logger.error(f"Database error during add_inventory_item: {str(e)}", exc_info=True)
-        # Specific check for the UNIQUE constraint error on food.name
-        if "UNIQUE constraint failed: food.name" in str(e):
-             # This error should now be less likely with the logic above, but catch it defensively.
-             return jsonify({"error": f"Food item type with name '{item_name}' already exists in the system and could not be added as a new type. (Constraint Error)"}), 409 # Use 409 Conflict
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
-    except Exception as e: # Catch-all for other unexpected errors (like Gemini API issues, network errors, etc.)
-        db.session.rollback()
-        logger.error(f"Unexpected error during add_inventory_item: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+        db.session.rollback() # Roll back the transaction on error
+        logger.error(f"Database error adding inventory item: {e}", exc_info=True)
+        return jsonify({"error": "Database error while adding item."}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error adding inventory item: {e}", exc_info=True)
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+
 
 @retailer_bp.route("/requested_food", methods=["GET"])
 @jwt_required()
